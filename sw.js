@@ -1,6 +1,6 @@
 // Service worker: keeps the app usable without internet.
 // Bump VERSION whenever any file below changes, so phones pick up the update.
-const VERSION = 'saphir-v1';
+const VERSION = 'saphir-v2';
 const SHELL = [
   './',
   './index.html',

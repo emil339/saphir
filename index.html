@@ -157,6 +157,23 @@ textarea{min-height:150px;resize:vertical}
 .vnav .vhint{margin-left:auto}
 .viewer .chip.u{background:#15291F;color:#7CCBA4} .viewer .chip.h{background:#2E1C10;color:#F0A06A} .viewer .chip.s{background:#221D3A;color:#B3A8F0}
 .viewer .none{color:#7D8399}
+
+.backbtn{min-width:0;max-width:64%}
+.ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.crumbs{font-size:13px;color:var(--muted);line-height:1.35}
+.verso .crumbs{margin-top:-6px}
+.vcr{font-size:13px;color:#9AA0B4;margin-top:-4px}
+.ghead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:26px;min-height:36px}
+.ghead + .grid{margin-top:10px}
+.btn.sm{min-height:36px;padding:0 12px;font-size:14px}
+.ptile .img{position:relative}
+.tick{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff}
+.tick .icon{width:16px;height:16px}
+.ptile.on .tick{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ptile.on .img{outline:3px solid var(--accent);outline-offset:2px}
+.sheet{position:fixed;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:calc(82px + env(safe-area-inset-bottom,0px));z-index:30;max-width:528px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px 10px 10px 16px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px}
+body.hasSheet{padding-block:env(safe-area-inset-top,0px) calc(170px + env(safe-area-inset-bottom,0px))}
 @media (prefers-reduced-motion: no-preference){
   .face{animation:fadein .22s ease}
   @keyframes fadein{from{opacity:.25;transform:scale(.985)}to{opacity:1;transform:none}}
@@ -193,7 +210,9 @@ const P={
   gem:'<path d="M7 4h10l4 5-9 11L3 9z"/><path d="M3 9h18M10 4l2 16M14 4l-2 16"/>',
   save:'<path d="M4 8h16v11H4z"/><path d="M3 4h18v4H3zM10 12h4"/>',
   share:'<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 11v9h14v-9"/>',
-  upload:'<path d="M12 4v11M8 11l4 4 4-4"/><path d="M5 19h14"/>'
+  upload:'<path d="M12 4v11M8 11l4 4 4-4"/><path d="M5 19h14"/>',
+  folder:'<path d="M3 6h6l2 2h10v11H3z"/>',
+  folderPlus:'<path d="M3 6h6l2 2h10v11H3z"/><path d="M12 11v5M9.5 13.5h5"/>'
 };
 const ic=n=>'<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+P[n]+'</svg>';
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -202,7 +221,7 @@ const SAFE_ID=/^[A-Za-z0-9_-]{1,64}$/;
 const STANDALONE=(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;
 
 const st={view:'lib',sec:'u',themeId:null,themes:[],photos:[],ready:false,failed:false,
-  newTheme:false,themeMenu:false,confirmDelTheme:false,form:null,saving:false,busy:false,
+  newTheme:false,themeMenu:false,confirmDelTheme:false,newFolder:false,sel:null,move:null,form:null,saving:false,busy:false,
   rsec:'u',deck:[],ri:0,flip:false,viewer:null,lastBackup:null,
   bk:{phase:'idle',progress:'',file:null,size:0,usage:null,restore:null,msg:''}};
 const URLS={};
@@ -211,6 +230,11 @@ const byDate=(a,b)=>(a.createdAt||0)-(b.createdAt||0);
 const themesIn=k=>st.themes.filter(t=>t.section===k).sort(byDate);
 const theme=id=>st.themes.find(t=>t.id===id);
 const photosOf=id=>st.photos.filter(p=>p.themeId===id).sort(byDate);
+const rootsIn=k=>st.themes.filter(t=>!t.parentId&&t.section===k).sort(byDate);
+const kids=id=>st.themes.filter(t=>t.parentId===id).sort(byDate);
+function subtree(id){const out=[id];for(let i=0;i<out.length&&i<5000;i++)st.themes.forEach(t=>{if(t.parentId===out[i]&&!out.includes(t.id))out.push(t.id)});return out}
+const photosDeep=id=>{const s=new Set(subtree(id));return st.photos.filter(p=>s.has(p.themeId)).sort(byDate)};
+function chain(id){const c=[];let t=theme(id),g=0;while(t&&g++<50){c.unshift(t);t=t.parentId?theme(t.parentId):null}return c}
 const secOf=p=>{const t=theme(p.themeId);return t?t.section:null};
 const countSec=k=>st.photos.filter(p=>secOf(p)===k).length;
 const full=p=>(URLS[p.imgId]&&URLS[p.imgId].full)||'';
@@ -344,11 +368,10 @@ function vLib(){
   h+=segSec('sec',st.sec,false);
   if(st.failed)return h+failed();
   if(!st.ready)return h+'<p class="hint">Chargement de tes photos…</p>';
-  const list=themesIn(st.sec);
+  const list=rootsIn(st.sec);
   h+='<div class="list">';
   if(!list.length)h+='<div class="empty"><p>Aucun thème dans '+SEC[st.sec]+' pour l’instant.</p><p class="sub">Un thème regroupe toutes tes photos d’une même inclusion, par exemple « Soie de rutile intacte ».</p></div>';
-  list.forEach(t=>{const ps=photosOf(t.id);
-    h+='<button type="button" class="row" data-a="openTheme" data-v="'+esc(t.id)+'"><span class="thumb">'+(ps[0]&&thumb(ps[0])?'<img src="'+thumb(ps[0])+'" alt="">':ic('gem'))+'</span><span class="t"><span class="name">'+esc(t.name)+'</span><span class="cnt">'+plural(ps.length,'photo')+'</span></span>'+ic('chev')+'</button>';});
+  list.forEach(t=>{h+=folderRow(t)});
   h+='</div>';
   h+=st.newTheme
     ?'<div class="panel"><div><label class="f" for="tn">Nouveau thème dans '+SEC[st.sec]+'</label><input type="text" id="tn" autocomplete="off" placeholder="Aiguilles de boehmite"></div><div class="err" id="tnErr"></div><div class="actions"><button type="button" class="btn primary" data-a="createTheme">'+ic('check')+'Créer le thème</button><button type="button" class="btn ghost" data-a="cancelNewTheme">Annuler</button></div></div>'
@@ -357,23 +380,45 @@ function vLib(){
   return h;
 }
 
+function folderRow(t){const ps=photosDeep(t.id),nk=subtree(t.id).length-1;
+  return '<button type="button" class="row" data-a="openTheme" data-v="'+esc(t.id)+'"><span class="thumb">'+(ps[0]&&thumb(ps[0])?'<img src="'+thumb(ps[0])+'" alt="">':ic(t.parentId?'folder':'gem'))+'</span><span class="t"><span class="name">'+esc(t.name)+'</span><span class="cnt">'+(nk?plural(nk,'dossier')+' · ':'')+plural(ps.length,'photo')+'</span></span>'+ic('chev')+'</button>';}
+function folderOptions(sel){return SECS.map(k=>{const out=[];
+  const walk=(t,d)=>{out.push('<option value="'+esc(t.id)+'"'+(t.id===sel?' selected':'')+'>'+'   '.repeat(d)+(d?'↳ ':'')+esc(t.name)+'</option>');if(d<20)kids(t.id).forEach(x=>walk(x,d+1))};
+  rootsIn(k).forEach(t=>walk(t,0));return out.length?'<optgroup label="'+SEC[k]+'">'+out.join('')+'</optgroup>':'';}).join('')}
+function pathParts(id){const c=chain(id);return {root:c[0]?c[0].name:'',sub:c.slice(1).map(x=>x.name).join(' › ')}}
+function pathHtml(id,tag,cls){const x=pathParts(id);return '<'+tag+(tag==='div'?' class="vt"':'')+'>'+esc(x.root)+'</'+tag+'>'+(x.sub?'<span class="'+cls+'">› '+esc(x.sub)+'</span>':'')}
 function vTheme(){
-  const t=theme(st.themeId);
-  let h='<div class="bar"><button type="button" class="btn ghost" data-a="back">'+ic('back')+(t?SEC[t.section]:'Retour')+'</button>'+(t?'<button type="button" class="btn ghost" data-a="themeMenu" aria-expanded="'+st.themeMenu+'">'+ic('pencil')+'Thème</button>':'')+'</div>';
-  if(!t)return h+'<p class="hint">Ce thème n’existe plus.</p>';
-  const ps=photosOf(t.id);
-  h+='<div class="thead"><span class="chip '+t.section+'"><span class="dot"></span>'+SEC[t.section]+'</span><h2>'+esc(t.name)+'</h2><span class="cnt">'+plural(ps.length,'photo')+'</span></div>';
+  const t=theme(st.themeId),parent=t&&t.parentId?theme(t.parentId):null;
+  let h='<div class="bar"><button type="button" class="btn ghost backbtn" data-a="back">'+ic('back')+'<span class="ell">'+esc(t?(parent?parent.name:SEC[t.section]):'Retour')+'</span></button>'+(t?'<button type="button" class="btn ghost" data-a="themeMenu" aria-expanded="'+st.themeMenu+'">'+ic('pencil')+'Modifier</button>':'')+'</div>';
+  if(!t)return h+'<p class="hint">Ce dossier n’existe plus.</p>';
+  const ps=photosOf(t.id),sub=kids(t.id),c=chain(t.id),all=photosDeep(t.id),nsub=subtree(t.id).length-1;
+  h+='<div class="thead"><span class="chip '+t.section+'"><span class="dot"></span>'+SEC[t.section]+'</span>'+(c.length>1?'<span class="crumbs">'+c.slice(0,-1).map(x=>esc(x.name)).join(' › ')+' ›</span>':'')+'<h2>'+esc(t.name)+'</h2><span class="cnt">'+(nsub?plural(nsub,'dossier')+' · ':'')+plural(all.length,'photo')+'</span></div>';
   if(st.themeMenu){
-    const what=ps.length===1?' et sa photo':ps.length>1?' et ses '+ps.length+' photos':'';
-    h+='<div class="panel"><div><label class="f" for="rn">Nom du thème</label><input type="text" id="rn" autocomplete="off" value="'+esc(t.name)+'"></div><div class="err" id="rnErr"></div><div class="actions"><button type="button" class="btn primary" data-a="renameTheme">'+ic('check')+'Enregistrer</button><button type="button" class="btn ghost" data-a="themeMenu">Fermer</button></div><hr>'
+    const bits=[];if(nsub)bits.push(nsub===1?'son dossier':'ses '+nsub+' dossiers');if(all.length)bits.push(all.length===1?'sa photo':'ses '+all.length+' photos');
+    const what=bits.length?' avec '+bits.join(' et '):'';
+    h+='<div class="panel"><div><label class="f" for="rn">Nom '+(t.parentId?'du dossier':'du thème')+'</label><input type="text" id="rn" autocomplete="off" value="'+esc(t.name)+'"></div><div class="err" id="rnErr"></div><div class="actions"><button type="button" class="btn primary" data-a="renameTheme">'+ic('check')+'Enregistrer</button><button type="button" class="btn ghost" data-a="themeMenu">Fermer</button></div><hr>'
       +(st.confirmDelTheme
         ?'<p>Supprimer « '+esc(t.name)+' »'+what+' ? C’est définitif.</p><div class="actions"><button type="button" class="btn danger" data-a="delTheme">'+ic('trash')+'Supprimer définitivement</button><button type="button" class="btn ghost" data-a="cancelDelTheme">Annuler</button></div>'
-        :'<div class="actions"><button type="button" class="btn ghost danger" data-a="askDelTheme">'+ic('trash')+'Supprimer ce thème</button></div>')+'</div>';
+        :'<div class="actions"><button type="button" class="btn ghost danger" data-a="askDelTheme">'+ic('trash')+'Supprimer '+(t.parentId?'ce dossier':'ce thème')+'</button></div>')+'</div>';
   }
-  h+='<div class="grid"><label class="addtile"><input type="file" id="addFile" accept="image/*" class="sr">'+ic('camera')+'<span>Ajouter une photo</span></label>';
-  ps.forEach((p,i)=>{h+='<button type="button" class="ptile" data-a="view" data-v="'+i+'"><span class="img"><img src="'+thumb(p)+'" alt="'+esc(p.desc?p.desc.slice(0,90):'Photo d’inclusion')+'"></span><span class="pdesc'+(p.desc?'':' none')+'">'+(p.desc?esc(p.desc):'Sans description')+'</span></button>';});
+  if(sub.length)h+='<div class="list">'+sub.map(folderRow).join('')+'</div>';
+  if(!st.sel)h+=st.newFolder
+    ?'<div class="panel"><div><label class="f" for="fn">Nouveau dossier dans « '+esc(t.name)+' »</label><input type="text" id="fn" autocomplete="off" placeholder="Zonage hexagonal"></div><div class="err" id="fnErr"></div><div class="actions"><button type="button" class="btn primary" data-a="createFolder">'+ic('check')+'Créer le dossier</button><button type="button" class="btn ghost" data-a="cancelNewFolder">Annuler</button></div></div>'
+    :'<button type="button" class="btn block mt" data-a="newFolder">'+ic('folderPlus')+'Nouveau dossier ici</button>';
+  if(st.sel&&st.move){const n=st.sel.size;
+    h+='<div class="panel" id="mvPanel"><div><label class="f" for="mvDest">Ranger '+plural(n,'photo')+' dans</label><select id="mvDest"><option value="__new"'+(st.move.dest==='__new'?' selected':'')+'>＋ Nouveau dossier dans « '+esc(t.name)+' »</option>'+folderOptions(st.move.dest)+'</select></div>'
+      +(st.move.dest==='__new'?'<div><label class="f" for="mvName">Nom du nouveau dossier</label><input type="text" id="mvName" autocomplete="off" placeholder="Zonage hexagonal" value="'+esc(st.move.name||'')+'"></div>':'')
+      +'<div class="err" id="mvErr"></div><div class="actions"><button type="button" class="btn primary" data-a="doMove">'+ic('check')+'Ranger</button><button type="button" class="btn ghost" data-a="moveClose">Retour</button></div></div>';
+  }
+  h+='<div class="ghead"><span class="eyebrow">'+(sub.length?'Photos de ce dossier':'Photos')+'</span>'+(ps.length?'<button type="button" class="btn ghost sm" data-a="'+(st.sel?'selCancel':'selStart')+'">'+(st.sel?'Terminer':'Sélectionner')+'</button>':'')+'</div><div class="grid">';
+  if(!st.sel)h+='<label class="addtile"><input type="file" id="addFile" accept="image/*" class="sr">'+ic('camera')+'<span>Ajouter une photo</span></label>';
+  ps.forEach((p,i)=>{const on=!!(st.sel&&st.sel.has(p.id));
+    h+='<button type="button" class="ptile'+(on?' on':'')+'" data-a="'+(st.sel?'selToggle':'view')+'" data-v="'+(st.sel?esc(p.id):i)+'"'+(st.sel?' aria-pressed="'+on+'"':'')+'><span class="img"><img src="'+thumb(p)+'" alt="'+esc(p.desc?p.desc.slice(0,90):'Photo d’inclusion')+'">'+(st.sel?'<span class="tick">'+(on?ic('check'):'')+'</span>':'')+'</span><span class="pdesc'+(p.desc?'':' none')+'">'+(p.desc?esc(p.desc):'Sans description')+'</span></button>';});
   h+='</div>';
-  if(!ps.length)h+='<p class="hint">Ajoute ta première photo de cette inclusion. Chaque photo a sa propre description.</p>';
+  if(!ps.length)h+='<p class="hint">'+(sub.length?'Aucune photo directement ici : elles sont rangées dans les dossiers au-dessus.':'Ajoute ta première photo de cette inclusion. Chaque photo a sa propre description.')+'</p>';
+  if(st.sel&&!st.move){const n=st.sel.size;
+    h+='<div class="sheet" role="region" aria-label="Photos sélectionnées"><div class="srow"><span>'+(n?plural(n,'photo')+' sélectionnée'+(n>1?'s':''):'Touche les photos à ranger')+'</span><button type="button" class="btn primary" data-a="moveOpen">'+ic('folder')+'Ranger</button></div></div>';
+  }
   return h;
 }
 
@@ -382,8 +427,7 @@ function vForm(){
   let h='<div class="bar"><button type="button" class="btn ghost" data-a="cancelForm">'+ic('x')+'Annuler</button><span class="eyebrow">'+(f.mode==='add'?'Nouvelle photo':'Modifier la photo')+'</span></div>';
   h+='<div class="fprev">'+(f.preparing?'<span>Préparation de la photo…</span>':img?'<img src="'+img+'" alt="Aperçu de la photo">':'<span>Aucune photo choisie</span>')+'</div>';
   h+='<label class="btn block mt rel">'+ic('camera')+(img?'Changer la photo':'Choisir une photo')+'<input type="file" id="chgFile" accept="image/*" class="sr"></label>';
-  h+='<div class="fields"><div><label class="f" for="fTheme">Thème</label><select id="fTheme">'+SECS.map(k=>{const ts=themesIn(k);if(!ts.length)return '';
-      return '<optgroup label="'+SEC[k]+'">'+ts.map(x=>'<option value="'+esc(x.id)+'"'+(x.id===f.themeId?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</optgroup>';}).join('')+'</select></div>';
+  h+='<div class="fields"><div><label class="f" for="fTheme">Dossier</label><select id="fTheme">'+folderOptions(f.themeId)+'</select></div>';
   h+='<div><label class="f" for="fDesc">Description de cette photo</label><textarea id="fDesc" rows="6" placeholder="Ce que tu observes : forme, couleur, éclairage, grossissement…">'+esc(f.desc)+'</textarea></div>';
   h+='<div class="err" id="fErr">'+esc(f.err||'')+'</div>';
   h+='<button type="button" class="btn primary block" data-a="savePhoto"'+(st.saving?' aria-disabled="true"':'')+'>'+(st.saving?'Enregistrement…':ic('check')+'Enregistrer')+'</button>';
@@ -407,7 +451,7 @@ function vRev(){
   h+='<div class="card" data-a="flip" role="button" tabindex="0" aria-label="'+(st.flip?'Revoir la photo':'Retourner la carte')+'">';
   h+=!st.flip
     ?'<div class="face"><div class="cimg"><img src="'+full(p)+'" alt="Photo à identifier"><button type="button" class="zoombtn" data-a="revZoom" aria-label="Agrandir la photo">'+ic('zoom')+'</button></div><span class="chint">'+(st.rsec==='m'?'Unheated, heated ou synthétique ? Touche pour vérifier.':'Quelle inclusion ? Touche pour voir ta description.')+'</span></div>'
-    :'<div class="face verso"><span class="chip '+k+'"><span class="dot"></span>'+SEC[k]+'</span><h2>'+esc(t.name)+'</h2><p class="cdesc">'+(p.desc?esc(p.desc):'<span class="none">Pas encore de description.</span>')+'</p><span class="chint">Touche pour revoir la photo</span></div>';
+    :'<div class="face verso"><span class="chip '+k+'"><span class="dot"></span>'+SEC[k]+'</span>'+pathHtml(p.themeId,'h2','crumbs')+'<p class="cdesc">'+(p.desc?esc(p.desc):'<span class="none">Pas encore de description.</span>')+'</p><span class="chint">Touche pour revoir la photo</span></div>';
   h+='</div><div class="rnav"><button type="button" class="btn" data-a="rPrev" aria-label="Carte précédente">'+ic('back')+'</button><span class="rc">'+(st.ri+1)+' / '+deck.length+'</span><button type="button" class="btn" data-a="rNext" aria-label="Carte suivante">'+ic('chev')+'</button></div>';
   h+='<button type="button" class="btn ghost block" data-a="reshuffle">'+ic('shuffle')+'Mélanger à nouveau</button>';
   return h;
@@ -437,6 +481,7 @@ function render(){
   document.getElementById('app').innerHTML=v==='form'?vForm():v==='theme'?vTheme():v==='rev'?vRev():v==='backup'?vBackup():vLib();
   document.getElementById('nav').hidden=v==='form';
   document.body.classList.toggle('noNav',v==='form');
+  document.body.classList.toggle('hasSheet',v==='theme'&&!!st.sel&&!st.move);
   document.querySelectorAll('#nav button').forEach(b=>b.setAttribute('aria-current',(b.dataset.v==='rev')===(v==='rev')&&v!=='backup'?'page':'false'));
 }
 function go(view){st.view=view;window.scrollTo(0,0);render()}
@@ -463,7 +508,7 @@ function renderViewer(focus){
   h+='<div class="stage" id="stage"><img id="vimg" src="'+full(p)+'" alt="'+esc(V.blind?'Photo à identifier':(p.desc||'Photo d’inclusion').slice(0,120))+'" draggable="false"></div>';
   h+='<div class="vinfo">'+(V.blind
     ?'<p class="vhint">Touche deux fois pour zoomer, ou pince avec deux doigts. Ferme pour répondre.</p>'
-    :'<span class="chip '+k+'"><span class="dot"></span>'+SEC[k]+'</span><div class="vt">'+esc(t?t.name:'')+'</div><p class="vd">'+(p.desc?esc(p.desc):'<span class="none">Pas encore de description.</span>')+'</p><div class="vnav">'
+    :'<span class="chip '+k+'"><span class="dot"></span>'+SEC[k]+'</span>'+pathHtml(p.themeId,'div','vcr')+'<p class="vd">'+(p.desc?esc(p.desc):'<span class="none">Pas encore de description.</span>')+'</p><div class="vnav">'
       +(V.ids.length>1?'<button type="button" class="vbtn" data-a="vPrev" aria-label="Photo précédente">'+ic('back')+'</button><button type="button" class="vbtn" data-a="vNext" aria-label="Photo suivante">'+ic('chev')+'</button>':'')
       +'<p class="vhint">Touche deux fois pour zoomer</p></div>')+'</div>';
   el.innerHTML=h;
@@ -527,17 +572,42 @@ async function renameTheme(){
   if(st.busy)return;const el=document.getElementById('rn');if(!el)return;const name=el.value.trim();
   if(!name){document.getElementById('rnErr').textContent='Le nom ne peut pas être vide.';el.focus();return}
   st.busy=true;
-  try{const t=theme(st.themeId),n=Object.assign({},t,{name});await tx(['themes'],x=>x.objectStore('themes').put(n));Object.assign(t,{name});st.themeMenu=false;st.confirmDelTheme=false;render();toast('Thème renommé')}
+  try{const t=theme(st.themeId),n=Object.assign({},t,{name});await tx(['themes'],x=>x.objectStore('themes').put(n));Object.assign(t,{name});st.themeMenu=false;st.confirmDelTheme=false;render();toast('Nom enregistré')}
   catch(e){const x=document.getElementById('rnErr');if(x)x.textContent=errMsg(e)}
   st.busy=false;
 }
 async function delTheme(){
-  if(st.busy)return;st.busy=true;const id=st.themeId,ps=photosOf(id);
+  if(st.busy)return;st.busy=true;const id=st.themeId,t=theme(id),ids=new Set(subtree(id)),ps=st.photos.filter(p=>ids.has(p.themeId));
   try{
-    await tx(['themes','photos','images'],x=>{ps.forEach(p=>{x.objectStore('photos').delete(p.id);x.objectStore('images').delete(p.imgId)});x.objectStore('themes').delete(id)});
-    ps.forEach(p=>dropURLs(p.imgId));st.photos=st.photos.filter(p=>p.themeId!==id);st.themes=st.themes.filter(t=>t.id!==id);
-    st.themeMenu=false;st.confirmDelTheme=false;st.themeId=null;go('lib');toast('Thème supprimé');
+    await tx(['themes','photos','images'],x=>{ps.forEach(p=>{x.objectStore('photos').delete(p.id);x.objectStore('images').delete(p.imgId)});ids.forEach(k=>x.objectStore('themes').delete(k))});
+    ps.forEach(p=>dropURLs(p.imgId));st.photos=st.photos.filter(p=>!ids.has(p.themeId));st.themes=st.themes.filter(x=>!ids.has(x.id));
+    const parent=t&&t.parentId?theme(t.parentId):null;resetFolderUI();
+    if(parent){st.themeId=parent.id;go('theme')}else{st.themeId=null;go('lib')}
+    toast(t&&t.parentId?'Dossier supprimé':'Thème supprimé');
   }catch(e){toast(errMsg(e))}
+  st.busy=false;
+}
+function resetFolderUI(){st.themeMenu=false;st.confirmDelTheme=false;st.newFolder=false;st.sel=null;st.move=null}
+async function createFolder(){
+  if(st.busy)return;const el=document.getElementById('fn');if(!el)return;const name=el.value.trim();
+  if(!name){document.getElementById('fnErr').textContent='Donne un nom au dossier.';el.focus();return}
+  const cur=theme(st.themeId);if(!cur)return;st.busy=true;
+  try{const f={id:uid(),name,section:cur.section,parentId:cur.id,createdAt:Date.now()};await tx(['themes'],x=>x.objectStore('themes').put(f));st.themes.push(f);st.newFolder=false;render();toast('Dossier créé')}
+  catch(e){const x=document.getElementById('fnErr');if(x)x.textContent=errMsg(e)}
+  st.busy=false;
+}
+async function doMove(){
+  if(st.busy||!st.sel||!st.move)return;const err=document.getElementById('mvErr'),ids=[...st.sel],cur=theme(st.themeId);let dest=st.move.dest;
+  if(!ids.length){err.textContent='Sélectionne au moins une photo.';return}
+  if(dest==='__new'&&!(st.move.name||'').trim()){err.textContent='Donne un nom au nouveau dossier.';const el=document.getElementById('mvName');if(el)el.focus();return}
+  if(!cur)return;st.busy=true;
+  try{
+    if(dest==='__new'){const f={id:uid(),name:st.move.name.trim(),section:cur.section,parentId:cur.id,createdAt:Date.now()};await tx(['themes'],x=>x.objectStore('themes').put(f));st.themes.push(f);dest=f.id}
+    const d=theme(dest),moved=ids.map(id=>st.photos.find(p=>p.id===id)).filter(Boolean);
+    await tx(['photos'],x=>moved.forEach(p=>x.objectStore('photos').put(Object.assign({},p,{themeId:dest}))));
+    moved.forEach(p=>{p.themeId=dest});
+    st.sel=null;st.move=null;render();toast(plural(moved.length,'photo')+' rangée'+(moved.length>1?'s':'')+' dans « '+(d?d.name:'')+' »');
+  }catch(e){err.textContent=errMsg(e)}
   st.busy=false;
 }
 async function savePhoto(){
@@ -598,10 +668,14 @@ async function doRestore(){
   const {z,data}=b.restore;b.phase='restoring';b.progress='';b.msg='';render();
   let added=0;
   try{
-    const themes=data.themes.filter(t=>t&&SAFE_ID.test(t.id)&&typeof t.name==='string'&&SECS.includes(t.section));
-    const key=t=>t.section+'|'+t.name.trim().toLowerCase(),existing=new Map(st.themes.map(t=>[key(t),t.id])),remap={},toPut=[];
-    themes.forEach(t=>{const ex=existing.get(key(t));if(ex&&ex!==t.id)remap[t.id]=ex;else toPut.push(t)});
-    await tx(['themes'],x=>toPut.forEach(t=>x.objectStore('themes').put({id:t.id,name:t.name.slice(0,200),section:t.section,createdAt:+t.createdAt||Date.now()})));
+    const all=data.themes.filter(t=>t&&SAFE_ID.test(t.id)&&typeof t.name==='string'&&SECS.includes(t.section)),byId=new Map(all.map(t=>[t.id,t]));
+    const depth=t=>{let d=0,x=t;while(x&&x.parentId&&byId.has(x.parentId)&&d<50){d++;x=byId.get(x.parentId)}return d};
+    all.sort((a,b)=>depth(a)-depth(b));
+    const key=(sec,par,name)=>sec+'|'+(par||'')+'|'+name.trim().toLowerCase(),existing=new Map(st.themes.map(t=>[key(t.section,t.parentId,t.name),t.id])),remap={},toPut=[];
+    all.forEach(t=>{let par=t.parentId&&SAFE_ID.test(t.parentId)?(remap[t.parentId]||t.parentId):null;if(par&&!byId.has(t.parentId)&&!theme(par))par=null;
+      const k=key(t.section,par,t.name),ex=existing.get(k);
+      if(ex&&ex!==t.id)remap[t.id]=ex;else{toPut.push({id:t.id,name:t.name.slice(0,200),section:t.section,parentId:par,createdAt:+t.createdAt||Date.now()});existing.set(k,t.id)}});
+    await tx(['themes'],x=>toPut.forEach(t=>x.objectStore('themes').put(t)));
     const photos=data.photos.filter(p=>p&&SAFE_ID.test(p.id)&&SAFE_ID.test(p.imgId)&&SAFE_ID.test(p.themeId));
     for(let i=0;i<photos.length;i++){
       const p=photos[i],f=await z.get('images/'+p.imgId+'.jpg','image/jpeg');
@@ -615,10 +689,18 @@ async function doRestore(){
 
 /* ---------- Actions ---------- */
 const ACT={
-  tab:v=>{if(st.viewer)closeViewer();if(v==='rev'){buildDeck();go('rev')}else go(st.themeId&&theme(st.themeId)?'theme':'lib')},
+  tab:v=>{if(st.viewer)closeViewer();resetFolderUI();if(v==='rev'){buildDeck();go('rev')}else go(st.themeId&&theme(st.themeId)?'theme':'lib')},
   sec:v=>{st.sec=v;st.newTheme=false;render()},
-  openTheme:v=>{st.themeId=v;st.themeMenu=false;st.confirmDelTheme=false;go('theme')},
-  back:()=>{st.themeId=null;st.themeMenu=false;st.confirmDelTheme=false;go('lib')},
+  openTheme:v=>{st.themeId=v;resetFolderUI();go('theme')},
+  back:()=>{const t=theme(st.themeId);resetFolderUI();if(t&&t.parentId&&theme(t.parentId)){st.themeId=t.parentId;go('theme')}else{st.themeId=null;go('lib')}},
+  newFolder:()=>{st.newFolder=true;render();const el=document.getElementById('fn');if(el)el.focus()},
+  cancelNewFolder:()=>{st.newFolder=false;render()},
+  createFolder,doMove,
+  selStart:()=>{st.sel=new Set();st.move=null;st.newFolder=false;st.themeMenu=false;render()},
+  selCancel:()=>{st.sel=null;st.move=null;render()},
+  selToggle:v=>{if(!st.sel)return;if(st.sel.has(v))st.sel.delete(v);else st.sel.add(v);render()},
+  moveOpen:()=>{if(!st.sel||!st.sel.size){toast('Touche d’abord les photos à ranger');return}st.move={dest:'__new',name:''};render();const p=document.getElementById('mvPanel');if(p)p.scrollIntoView({block:'center'})},
+  moveClose:()=>{st.move=null;render()},
   newTheme:()=>{st.newTheme=true;render();const el=document.getElementById('tn');if(el)el.focus()},
   cancelNewTheme:()=>{st.newTheme=false;render()},
   createTheme,renameTheme,delTheme,
@@ -658,15 +740,19 @@ document.addEventListener('keydown',e=>{
   if((e.key==='Enter'||e.key===' ')&&el.matches&&el.matches('[role="button"][data-a]')&&el.tagName!=='BUTTON'){e.preventDefault();const f=ACT[el.dataset.a];if(f)f(el.dataset.v,el,e)}
   if(e.key==='Enter'&&el.id==='tn'){e.preventDefault();createTheme()}
   if(e.key==='Enter'&&el.id==='rn'){e.preventDefault();renameTheme()}
+  if(e.key==='Enter'&&el.id==='fn'){e.preventDefault();createFolder()}
+  if(e.key==='Enter'&&el.id==='mvName'){e.preventDefault();doMove()}
 });
 document.addEventListener('input',e=>{
   const t=e.target;
   if(t.id==='fDesc'&&st.form){st.form.desc=t.value;st.form.err=''}
-  const map={tn:'tnErr',rn:'rnErr',fDesc:'fErr'},x=map[t.id]&&document.getElementById(map[t.id]);if(x)x.textContent='';
+  if(t.id==='mvName'&&st.move)st.move.name=t.value;
+  const map={tn:'tnErr',rn:'rnErr',fDesc:'fErr',fn:'fnErr',mvName:'mvErr'},x=map[t.id]&&document.getElementById(map[t.id]);if(x)x.textContent='';
 });
 document.addEventListener('change',async e=>{
   const t=e.target;
   if(t.id==='fTheme'&&st.form){st.form.themeId=t.value;return}
+  if(t.id==='mvDest'&&st.move){st.move.dest=t.value;render();return}
   if(t.id==='restoreFile'){
     const file=t.files&&t.files[0];t.value='';if(!file)return;const b=st.bk;b.msg='';
     try{const z=await readZip(file),dj=await z.get('data.json','application/json');if(!dj)throw new Error('zip');
